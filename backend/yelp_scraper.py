@@ -7,48 +7,76 @@ from dotenv import load_dotenv
 '''
 Global Variables
 '''
-table_name = "yelp-restaurants"
-partition_key = "insertedAtTimestamp"    
-cuisine_types = ["Thai", "Chinese", "Mexican", "Indian", "Sushi", "Italian", "American", "Fast Food", "Ramen", "Korean"]
+partition_key = "restaurant_id" 
+cuisine_types = ["thai", "chinese", "mexican", "indian", "sushi", "italian", "pizza", "french", "ramen", "korean"]
 yelp_url = "https://api.yelp.com/v3/businesses/search"
 
-
-'''
-This function makes a call to Yelp API
-and queries data on restaurants by category
-'''
-def yelp_query():
-    pass
 
 '''
 Take the results of API query and add 
 information entry by entry into DynamoDB table
 '''
-def modify_table():
+def add_to_table(table, metadata):
+    response = table.put_item(
+        metadata
+    )
+    return response["ResponseMetadata"]["HTTPStatusCode"]
+
+def add_to_opensearch(metadata):
     pass
 
+'''
+This function makes a call to Yelp API
+and queries data on restaurants by category
+'''
+def scrape_from_yelp(url, headers, cuisine_type, table):
+    parameters = {
+        'location': 'New York, NY',
+        'term': 'restaurant',
+        'categories': cuisine_type,
+        'sort_by': 'best_match',
+        'limit': 50,
+    }
+
+    # Query Yelp API and return JSON metadata as Python Dict
+    response = requests.get(url=url, headers=headers, params=parameters).json()
+    
+    # Parse data, append to DynamoDB, add indices to ElasticSearch
+    for store in response['businesses']:
+        metadata = {
+            partition_key: store['id'],
+            "Cuisine": store['categories'][0].get('alias', cuisine_type),
+            "Name": store.get('name', 'null'),
+            "Coordinates": store.get('coordinates', 'null'),
+            "Number of Reviews": store.get('review_count', 0),
+            "Rating": store.get('rating', 0),
+            "Address": store['location'].get('address1', 'null'),
+            "Zip Code": store['location'].get('zip_code', 'null'),
+        }
+        add_to_table(table, metadata)
+
+    return response
+
+
 if __name__ == "__main__":
-    # Get local environment variables (i.e hidden keys) and initialize yelp_header
-    load_dotenv()
+    # Parse local .env file for API keys
+    res = load_dotenv(dotenv_path="../.env.local")
     headers = {
+        "accept": "application/json",
         "Authorization": 'Bearer %s' % os.getenv('YELP-API-KEY')
     }
 
-    # initialize the table
-    DB = boto3.resource('dynamodb')
-    table = DB.Table(table_name)
+    # Initialize the DynamoDB Table
+    table = boto3.resource('dynamodb').Table('yelp-restaurants')
 
-    # We will calculate the current time in milliseconds
-    # and use that as the partition key
+    # Intialize OpenSearch
+    # TODO
 
-    curr_time = str(time.time() * 1000)
+    # Iterate through cuisines and scrape restaurants...
+    # Their values will be added to DynamoDB Table and OpenSearch Instance
+    for cuisine in cuisine_types:
+        scrape_from_yelp(yelp_url, headers, cuisine, table)
 
+    print("\n=============\nFinished Scraping!!\n=============\n")
 
-
-'''
-    RTUxSyO5TKfUfjukmkEF5g
-
-API Key
-uHhiJ4Je9XyOwlHgvtR2ssFmht9a8T3HhDKlP16JNrqIAam6fiAQWjQZh_Qp7H6j7WUigOl2SKboypUnhBbOmaKb3xJrBM89W8xP9heLPwNUqktkN3sYZ0AxlFsBZHYx
-'''
 
