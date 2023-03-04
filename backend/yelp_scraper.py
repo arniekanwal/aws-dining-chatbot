@@ -69,9 +69,6 @@ if __name__ == "__main__":
     # Initialize the DynamoDB Table
     table = boto3.resource('dynamodb').Table('yelp-restaurants')
 
-    # Intialize OpenSearch
-    # TODO
-
     # Iterate through cuisines and scrape restaurants...
     # Their values will be added to DynamoDB Table and OpenSearch Instance
     for cuisine in cuisine_types:
