@@ -4,6 +4,7 @@ import os
 import json
 from dotenv import load_dotenv
 from decimal import Decimal
+import time
 
 '''
 Global Variables
@@ -53,6 +54,7 @@ def scrape_from_yelp(url, headers, cuisine_type, table):
             "Zip Code": store['location'].get('zip_code', 'null'),
         }
         add_to_table(table, metadata)
+        time.sleep(0.1)
 
     return response
 
