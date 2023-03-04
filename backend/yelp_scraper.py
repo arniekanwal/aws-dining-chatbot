@@ -1,8 +1,9 @@
 import boto3
-import time
 import requests
 import os
+import json
 from dotenv import load_dotenv
+from decimal import Decimal
 
 '''
 Global Variables
@@ -18,12 +19,9 @@ information entry by entry into DynamoDB table
 '''
 def add_to_table(table, metadata):
     response = table.put_item(
-        metadata
+        Item=metadata
     )
     return response["ResponseMetadata"]["HTTPStatusCode"]
-
-def add_to_opensearch(metadata):
-    pass
 
 '''
 This function makes a call to Yelp API
@@ -39,7 +37,8 @@ def scrape_from_yelp(url, headers, cuisine_type, table):
     }
 
     # Query Yelp API and return JSON metadata as Python Dict
-    response = requests.get(url=url, headers=headers, params=parameters).json()
+    r = requests.get(url=url, headers=headers, params=parameters).json()
+    response = json.loads(json.dumps(r), parse_float=Decimal)
     
     # Parse data, append to DynamoDB, add indices to ElasticSearch
     for store in response['businesses']:
@@ -48,8 +47,8 @@ def scrape_from_yelp(url, headers, cuisine_type, table):
             "Cuisine": store['categories'][0].get('alias', cuisine_type),
             "Name": store.get('name', 'null'),
             "Coordinates": store.get('coordinates', 'null'),
-            "Number of Reviews": store.get('review_count', 0),
-            "Rating": store.get('rating', 0),
+            "Number of Reviews": Decimal(store.get('review_count', 0)),
+            "Rating": Decimal(store.get('rating', 0)),
             "Address": store['location'].get('address1', 'null'),
             "Zip Code": store['location'].get('zip_code', 'null'),
         }
@@ -60,7 +59,7 @@ def scrape_from_yelp(url, headers, cuisine_type, table):
 
 if __name__ == "__main__":
     # Parse local .env file for API keys
-    res = load_dotenv(dotenv_path="../.env.local")
+    load_dotenv(dotenv_path="./.env.local")
     headers = {
         "accept": "application/json",
         "Authorization": 'Bearer %s' % os.getenv('YELP-API-KEY')
