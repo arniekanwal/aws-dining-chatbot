@@ -5,6 +5,8 @@ def lambda_handler(event, context):
 
     response = client.post_text(botName='DiningBot', botAlias='dev', userId='myuser',
                                 inputText=event['messages'][0]['unstructured']['text'])
+    
+    print("hello from Lambda!")
 
     return {
         'statusCode': 200,
@@ -14,4 +16,4 @@ def lambda_handler(event, context):
                 'text': response['message']
             }
         }]
-    }
+    }              
