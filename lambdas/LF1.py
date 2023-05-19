@@ -4,7 +4,7 @@ import datetime
 import time
 import os
 import logging
-from botocore.exceptions import ClientError
+from uuid import uuid4
 
 logger = logging.getLogger()
 logger.setLevel(logging.DEBUG)
@@ -12,58 +12,45 @@ logger.setLevel(logging.DEBUG)
 
 """ --- Helpers to build responses which match the structure of the necessary dialog actions --- """
 
-def push_to_sqs(msg_body):
-    """
-    :param QueueName: String name of existing SQS queue
-    :param msg_body: String message body
-    :return: Dictionary containing information about the sent message. If
-        error, returns None.
-    """
-    
+def push_to_sqs(msg_body, request_id):
     sqs = boto3.client('sqs')
+    queue_url = f"https://sqs.us-east-1.amazonaws.com/{user_id}/dining_paramq.fifo"
 
-    queue_url = 'https://sqs.us-east-1.amazonaws.com/401380617687/dining_paramq'
-    try:
-        # Send message to SQS queue
-        response = sqs.send_message(
-            QueueUrl=queue_url,
-            DelaySeconds=0,
-            MessageAttributes={
-                'cuisine': {
-                    'DataType': 'String',
-                    'StringValue': msg_body['cuisine']
-                },
-                'location': {
-                    'DataType': 'String',
-                    'StringValue': msg_body['location']
-                },
-                'phone_number': {
-                    'DataType': 'Number',
-                    'StringValue': msg_body['phone_number']
-                },
-                'dining_time': {
-                    'DataType': 'String',
-                    'StringValue': msg_body['dining_time']
-                },
-                'dining_date': {
-                    'DataType': 'String',
-                    'StringValue': msg_body['dining_time']
-                },
-                'people': {
-                    'DataType': 'Number',
-                    'StringValue': msg_body['people']
-                }
+    response = sqs.send_message(
+        QueueUrl=queue_url,
+        DelaySeconds=0,
+        MessageAttributes={
+            'cuisine': {
+                'DataType': 'String',
+                'StringValue': msg_body['cuisine']
             },
-            MessageBody=(
-                'Information about the diner'
-            )
-        )
-    
-    except ClientError as e:
-        logging.error(e) 
-        return None
-    
-    return response
+            'location': {
+                'DataType': 'String',
+                'StringValue': msg_body['location']
+            },
+            'phone_number': {
+                'DataType': 'Number',
+                'StringValue': msg_body['phone_number']
+            },
+            'dining_time': {
+                'DataType': 'String',
+                'StringValue': msg_body['dining_time']
+            },
+            'dining_date': {
+                'DataType': 'String',
+                'StringValue': msg_body['dining_time']
+            },
+            'people': {
+                'DataType': 'Number',
+                'StringValue': msg_body['people']
+            }
+        },
+        MessageBody=f"Queried for cuisine:{msg_body['cuisine']} in location:{msg_body['location']}",
+        MessageGroupId=request_id,
+        MessageDeduplicationId=str(uuid4()),
+    )
+
+    print(f"SQS Response: {response}")
 
 
 def get_slots(intent_request):
@@ -108,14 +95,6 @@ def delegate(session_attributes, slots):
 
 """ --- Helper Functions --- """
 
-
-def parse_int(n):
-    try:
-        return int(n)
-    except ValueError:
-        return float('nan')
-
-
 def build_validation_result(is_valid, violated_slot, message_content):
     if message_content is None:
         return {
@@ -129,6 +108,12 @@ def build_validation_result(is_valid, violated_slot, message_content):
         'message': {'contentType': 'PlainText', 'content': message_content}
     }
 
+def parse_int(n):
+    try:
+        return int(n)
+    except ValueError:
+        return float('nan')
+
 
 def isvalid_date(date):
     verbal_dates = ['today', 'tomorrow', 'tmrw', 'day after tomorrow', 'day after tmrw']
@@ -140,6 +125,14 @@ def isvalid_date(date):
         return True
     except ValueError:
         return False
+    
+def isvalid_time(time):
+    try:
+        datetime.datetime.strptime(time, '%H:%M')
+        return True
+    except ValueError:
+        return False
+    
     
 def isvalid_city(city):
     valid_cities = ['new york', 'nyc', 'ny', 'manhattan']
@@ -162,18 +155,18 @@ def validate_dining(location, cuisine, dining_date, dining_time, people, phone_n
 
     if dining_date is not None:
         if not isvalid_date(dining_date):
-            return build_validation_result(False, 'dining_date', 'I did not understand that, what date would you like to pick the flowers up?')
-        elif datetime.datetime.strptime(dining_date, '%Y-%m-%d').date() <= datetime.date.today():
-            return build_validation_result(False, 'dining_date', 'You can pick up the flowers from tomorrow onwards.  What day would you like to pick them up?')
+            return build_validation_result(False, 'dining_date', 'I did not understand that, what date do you want to reserve')
+        elif datetime.datetime.strptime(dining_date, '%Y-%m-%d').date() < datetime.date.today():
+            return build_validation_result(False, 'dining_date', 'You can make a reservation from today onwards. What day would you prefer?')
         
     if phone_number is not None:
         if len(phone_number) != 10:
             return build_validation_result(False, 'phone_number', "Please enter a valid phone number.")
         
-    if dining_time is not None:
+    if dining_time is not None and not isvalid_time(dining_time):
         return build_validation_result(False, 'dining_time', "Enter a valid time.")
         
-    if people is not None:
+    if people is not None and not parse_int(people):
         return build_validation_result(False, 'count', 'Sorry, I could not understand that. How many guests will be attending?')
 
     return build_validation_result(True, None, None)
@@ -216,11 +209,14 @@ def gather_dining_info(intent_request):
         return delegate(output_session_attributes, get_slots(intent_request))
 
     # Fulfillment code hook, send information to queue
-    push_to_sqs(slot_dict)
+    request_id='myuser'
+    # print(intent_request)
+    # print(slot_dict)
+    push_to_sqs(slot_dict, request_id)
     return close(intent_request['sessionAttributes'],
                  'Fulfilled',
                  {'contentType': 'PlainText',
-                  'content': 'Thanks, your recommendations will be text to you shortly!!'})
+                  'content': 'Thanks, your recommendations will be texted to you shortly!!'})
 
 
 """ --- Intents --- """
@@ -256,3 +252,8 @@ def lambda_handler(event, context):
     logger.debug('event.bot.name={}'.format(event['bot']['name']))
 
     return dispatch(event)
+
+
+
+
+
